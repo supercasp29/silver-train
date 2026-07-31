@@ -3,8 +3,7 @@ param(
     [string]$SubscriptionId
 )
 
-$appId = "6a382b35-2694-4b2b-9c63-9f74f8f14f32"
-$tenantId = "0c46d62d-1c6e-4565-b44f-dbdbe0c8f08f"
+
 
 Write-Host "=== Rescue Tenant Bootstrap: Terraform Initialization ==="
 
@@ -25,9 +24,8 @@ if (-not $clientSecret) {
 }
 
 # Get SP appId and tenantId
-$spName = "rescue-terraform-sp"
-$appId = az ad sp list --display-name $spName --query "[0].appId" -o tsv
-$tenantId = az ad sp list --display-name $spName --query "[0].tenant" -o tsv
+$appId = az keyvault secret show --vault-name rescue-backend-kv --name rescue-terraform-sp-appid --query "value" -o tsv
+$tenantId = az keyvault secret show --vault-name rescue-backend-kv --name rescue-terraform-sp-tenantid --query "value" -o tsv
 
 if (-not $appId -or -not $tenantId) {
     Write-Host "ERROR: Could not retrieve SP details." -ForegroundColor Red
