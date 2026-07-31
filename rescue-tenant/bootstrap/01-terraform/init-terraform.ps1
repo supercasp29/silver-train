@@ -3,6 +3,9 @@ param(
     [string]$SubscriptionId
 )
 
+$appId = az keyvault secret show --vault-name rescue-backend-kv --name rescue-terraform-sp-appid --query "value" -o tsv
+$tenantId = az keyvault secret show --vault-name rescue-backend-kv --name rescue-terraform-sp-tenantid --query "value" -o tsv
+
 Write-Host "=== Rescue Tenant Bootstrap: Terraform Initialization ==="
 
 # Select subscription
