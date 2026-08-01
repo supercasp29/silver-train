@@ -29,6 +29,7 @@ $existingSp = az ad sp list --display-name $spName --query "[0].appId" -o tsv
 if ($existingSp) {
     Write-Host "Identity SP already exists: $existingSp" -ForegroundColor Yellow
     $appId = $existingSp
+    $tenantId = az account show --query tenantId -o tsv
 } else {
     Write-Host "Creating Identity Service Principal: $spName"
 
@@ -38,9 +39,10 @@ if ($existingSp) {
         --skip-assignment `
         --query "{appId:appId, tenant:tenant, password:password}" -o json
 
-    $appId = ($sp | ConvertFrom-Json).appId
-    $tenantId = ($sp | ConvertFrom-Json).tenant
-    $secret = ($sp | ConvertFrom-Json).password
+    $spObj = $sp | ConvertFrom-Json
+    $appId = $spObj.appId
+    $tenantId = $spObj.tenant
+    $secret = $spObj.password
 
     Write-Host "Storing Identity SP secret in Key Vault"
     az keyvault secret set `
@@ -74,7 +76,7 @@ $objectId = az ad sp show --id $appId --query "id" -o tsv
 # User Administrator role template ID
 $roleTemplateId = "fe930be7-5e62-47db-91af-98c3a49a38b1"
 
-# Activate role if needed
+# Check if role is activated
 $roleId = az rest --method GET `
     --uri "https://graph.microsoft.com/v1.0/directoryRoles" `
     --query "value[?roleTemplateId=='$roleTemplateId'].id" -o tsv
@@ -87,11 +89,15 @@ if (-not $roleId) {
         --query "id" -o tsv
 }
 
-# Assign SP to role
+# Assign SP to role (Linux-safe JSON)
+$body = @{
+    "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$objectId"
+} | ConvertTo-Json
+
 az rest `
     --method POST `
     --uri "https://graph.microsoft.com/v1.0/directoryRoles/$roleId/members/\$ref" `
-    --body "{ \"@odata.id\": \"https://graph.microsoft.com/v1.0/directoryObjects/$objectId\" }"
+    --body $body
 
 Write-Host "=== Identity SP Details ===" -ForegroundColor Green
 Write-Host "appId: $appId"
