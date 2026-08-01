@@ -3,52 +3,47 @@ param(
     [string]$OrgName = "supercasp29",
 
     [Parameter(Mandatory=$true)]
-    [string]$ProjectName,                  # e.g. slinky-puppy
+    [string]$ProjectName,
 
     [Parameter(Mandatory=$true)]
-    [string]$RepoName,                     # usually same as project
+    [string]$RepoName,
 
     [Parameter(Mandatory=$true)]
-    [string]$TerraformSP_AppId,            # clientId of rescue-terraform-sp
+    [string]$TerraformSP_AppId,
 
     [Parameter(Mandatory=$true)]
-    [string]$TerraformSP_TenantId,         # tenantId of Bondi Rescue
+    [string]$TerraformSP_TenantId,
 
     [Parameter(Mandatory=$true)]
-    [string]$TerraformSP_Secret,           # secret for rescue-terraform-sp
+    [string]$TerraformSP_Secret,
 
     [Parameter(Mandatory=$true)]
-    [string]$IdentitySP_AppId,             # clientId of rescue-identity-sp
+    [string]$IdentitySP_AppId,
 
     [Parameter(Mandatory=$true)]
-    [string]$IdentitySP_TenantId,          # tenantId of Bondi Rescue
+    [string]$IdentitySP_TenantId,
 
     [Parameter(Mandatory=$true)]
-    [string]$IdentitySP_Secret,            # secret for rescue-identity-sp
+    [string]$IdentitySP_Secret,
 
     [Parameter(Mandatory=$true)]
-    [string]$DevOpsPAT                     # PAT for supercasp29 org
+    [string]$DevOpsPAT
 )
 
 Write-Host "=== Azure DevOps Bootstrap: Pipelines + Service Connections ===" -ForegroundColor Cyan
 
 # --------------------------------------------------------------------
-# 1. Ensure Azure DevOps authentication (safe pattern)
+# 1. Ensure Azure DevOps authentication
 # --------------------------------------------------------------------
-Write-Host "Ensuring Azure DevOps identity is correct..." -ForegroundColor Cyan
-
 $devopsProfile = az devops configure -l 2>$null
 
-if ($devopsProfile) {
-    Write-Host "Azure DevOps already authenticated." -ForegroundColor Green
-} else {
-    Write-Host "Logging into Azure DevOps org: https://dev.azure.com/$OrgName" -ForegroundColor Cyan
+if (-not $devopsProfile) {
+    Write-Host "Logging into Azure DevOps..." -ForegroundColor Cyan
     $DevOpsPAT | az devops login --organization "https://dev.azure.com/$OrgName"
-    Write-Host "Azure DevOps authentication OK." -ForegroundColor Green
 }
 
 # --------------------------------------------------------------------
-# 2. Create Terraform Service Connection (ARM)
+# 2. Create Terraform Service Connection
 # --------------------------------------------------------------------
 Write-Host "Checking Terraform service connection..." -ForegroundColor Cyan
 
@@ -57,9 +52,7 @@ $tfSC = az devops service-endpoint list `
     --project $ProjectName `
     --query "[?name=='terraform-sp']" -o tsv
 
-if ($tfSC) {
-    Write-Host "Terraform service connection already exists. Skipping." -ForegroundColor Yellow
-} else {
+if (-not $tfSC) {
     Write-Host "Creating Terraform service connection..." -ForegroundColor Cyan
 
     az devops service-endpoint azurerm create `
@@ -69,15 +62,17 @@ if ($tfSC) {
         --azure-rm-service-principal-id $TerraformSP_AppId `
         --azure-rm-service-principal-key $TerraformSP_Secret `
         --azure-rm-tenant-id $TerraformSP_TenantId `
-        --azure-rm-subscription-id "" `
-        --azure-rm-subscription-name "" `
+        --azure-rm-subscription-id "811295a3-72de-4c4d-913e-588fbdc61948" `
+        --azure-rm-subscription-name "Bondi Rescue Subscription" `
         --only-show-errors | Out-Null
 
     Write-Host "Terraform service connection created." -ForegroundColor Green
+} else {
+    Write-Host "Terraform service connection already exists." -ForegroundColor Yellow
 }
 
 # --------------------------------------------------------------------
-# 3. Create Identity Service Connection (ARM)
+# 3. Create Identity Service Connection
 # --------------------------------------------------------------------
 Write-Host "Checking Identity service connection..." -ForegroundColor Cyan
 
@@ -86,9 +81,7 @@ $idSC = az devops service-endpoint list `
     --project $ProjectName `
     --query "[?name=='identity-sp']" -o tsv
 
-if ($idSC) {
-    Write-Host "Identity service connection already exists. Skipping." -ForegroundColor Yellow
-} else {
+if (-not $idSC) {
     Write-Host "Creating Identity service connection..." -ForegroundColor Cyan
 
     az devops service-endpoint azurerm create `
@@ -98,25 +91,25 @@ if ($idSC) {
         --azure-rm-service-principal-id $IdentitySP_AppId `
         --azure-rm-service-principal-key $IdentitySP_Secret `
         --azure-rm-tenant-id $IdentitySP_TenantId `
-        --azure-rm-subscription-id "" `
-        --azure-rm-subscription-name "" `
+        --azure-rm-subscription-id "811295a3-72de-4c4d-913e-588fbdc61948" `
+        --azure-rm-subscription-name "Bondi Rescue Subscription" `
         --only-show-errors | Out-Null
 
     Write-Host "Identity service connection created." -ForegroundColor Green
+} else {
+    Write-Host "Identity service connection already exists." -ForegroundColor Yellow
 }
 
 # --------------------------------------------------------------------
-# 4. Upload YAML pipeline definitions to the repo
+# 4. Commit YAML to Azure DevOps repo
 # --------------------------------------------------------------------
-Write-Host "Uploading pipeline YAML files..." -ForegroundColor Cyan
-
-$repoUrl = "https://dev.azure.com/$OrgName/$ProjectName/_git/$RepoName"
+Write-Host "Pushing pipeline YAML to Azure DevOps repo..." -ForegroundColor Cyan
 
 git add .
 git commit -m "Add pipeline YAML definitions" --allow-empty
 git push origin main
 
-Write-Host "Pipeline YAML committed to repo." -ForegroundColor Green
+Write-Host "Pipeline YAML committed." -ForegroundColor Green
 
 # --------------------------------------------------------------------
 # 5. Create CI Pipeline
@@ -128,9 +121,7 @@ $ciPipe = az pipelines list `
     --project $ProjectName `
     --query "[?name=='CI']" -o tsv
 
-if ($ciPipe) {
-    Write-Host "CI pipeline already exists. Skipping." -ForegroundColor Yellow
-} else {
+if (-not $ciPipe) {
     Write-Host "Creating CI pipeline..." -ForegroundColor Cyan
 
     az pipelines create `
@@ -138,11 +129,14 @@ if ($ciPipe) {
         --organization "https://dev.azure.com/$OrgName" `
         --project $ProjectName `
         --repository $RepoName `
+        --repository-type tfsgit `
         --branch main `
         --yml-path "pipelines/ci.yml" `
         --only-show-errors | Out-Null
 
     Write-Host "CI pipeline created." -ForegroundColor Green
+} else {
+    Write-Host "CI pipeline already exists." -ForegroundColor Yellow
 }
 
 # --------------------------------------------------------------------
@@ -155,9 +149,7 @@ $cdPipe = az pipelines list `
     --project $ProjectName `
     --query "[?name=='CD']" -o tsv
 
-if ($cdPipe) {
-    Write-Host "CD pipeline already exists. Skipping." -ForegroundColor Yellow
-} else {
+if (-not $cdPipe) {
     Write-Host "Creating CD pipeline..." -ForegroundColor Cyan
 
     az pipelines create `
@@ -165,11 +157,14 @@ if ($cdPipe) {
         --organization "https://dev.azure.com/$OrgName" `
         --project $ProjectName `
         --repository $RepoName `
+        --repository-type tfsgit `
         --branch main `
         --yml-path "pipelines/cd.yml" `
         --only-show-errors | Out-Null
 
     Write-Host "CD pipeline created." -ForegroundColor Green
+} else {
+    Write-Host "CD pipeline already exists." -ForegroundColor Yellow
 }
 
 # --------------------------------------------------------------------
@@ -181,4 +176,4 @@ Write-Host "Project      : $ProjectName"
 Write-Host "Repo         : $RepoName"
 Write-Host "CI Pipeline  : CI"
 Write-Host "CD Pipeline  : CD"
-Write-Host "=========================================================" -ForegroundColor Cyan
+Write-Host "========================================================="
